@@ -356,6 +356,7 @@ ls ca*
 #### 3.4 分发证书文件
 
 将生成的 CA 证书、秘钥文件、配置文件拷贝到所有节点的 /etc/kubernetes/cert 目录下：
+
 首先执行此脚本加载变量：[environment.sh](common/environment.sh)
 
 ```
