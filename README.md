@@ -803,4 +803,5 @@ ETCDCTL_API=3 /opt/k8s/bin/etcdctl \
 ```
 
 > 注：IS LEADER 为true，则为leader
+
 > 注：所有操作在ks-master上执行
