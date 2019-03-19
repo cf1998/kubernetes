@@ -16,6 +16,16 @@ Table of Contents
             - [2.3 kubernetes节点系统优化](#23-kubernetes节点系统优化)
             - [2.4 安装Docker-CE](#24-安装docker-ce)
             - [2.5 配置Docker镜像加速](#25-配置docker镜像加速)
+        - [3. 创建 CA 证书和秘钥](#3-创建-ca-证书和秘钥)
+            - [3.1 安装 cfssl 工具集](#31-安装-cfssl-工具集)
+            - [3.2 创建根证书 (CA)](#32-创建根证书-ca)
+            - [3.3 生成 CA 证书和私钥](#33-生成-ca-证书和私钥)
+            - [3.4 分发证书文件](#34-分发证书文件)
+        - [4. 部署 kubectl 客户端工具](#4-部署-kubectl-客户端工具)
+            - [4.1 下载和分发 kubectl 二进制文件](#41-下载和分发-kubectl-二进制文件)
+            - [4.2 创建 admin 证书和私钥](#42-创建-admin-证书和私钥)
+            - [4.3 创建 kubeconfig 文件](#43-创建-kubeconfig-文件)
+            - [4.4 分发 kubeconfig 文件](#44-分发-kubeconfig-文件)
 
 <!-- /TOC -->
 
@@ -240,5 +250,251 @@ sudo tee /etc/docker/daemon.json <<-'EOF'
 EOF
 sudo systemctl daemon-reload
 sudo systemctl restart docker
+```
+
+### 3. 创建 CA 证书和秘钥
+
+
+> 为确保安全，kubernetes 系统各组件需要使用 x509 证书对通信进行加密和认证。
+
+> CA (Certificate Authority) 是自签名的根证书，用来签名后续创建的其它证书。
+
+#### 3.1 安装 cfssl 工具集
+
+```
+sudo mkdir -p /opt/k8s/cert && cd /opt/k8s
+wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64
+mv cfssl_linux-amd64 /opt/k8s/bin/cfssl
+
+wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64
+mv cfssljson_linux-amd64 /opt/k8s/bin/cfssljson
+
+wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64
+mv cfssl-certinfo_linux-amd64 /opt/k8s/bin/cfssl-certinfo
+
+chmod +x /opt/k8s/bin/*
+export PATH=/opt/k8s/bin:$PATH
+```
+> 注：所有操作在ks-master上执行
+
+#### 3.2 创建根证书 (CA)
+
+> CA 证书是集群所有节点共享的，只需要创建一个 CA 证书，后续创建的所有证书都由它签名。
+
+**创建配置文件**
+
+> CA 配置文件用于配置根证书的使用场景 (profile) 和具体参数 (usage，过期时间、服务端认证、客户端认证、加密等)，后续在签名其它证书时需要指定特定场景。
+
+```
+cd /opt/k8s/work
+cat > ca-config.json <<EOF
+{
+  "signing": {
+    "default": {
+      "expiry": "87600h"
+    },
+    "profiles": {
+      "kubernetes": {
+        "usages": [
+            "signing",
+            "key encipherment",
+            "server auth",
+            "client auth"
+        ],
+        "expiry": "87600h"
+      }
+    }
+  }
+}
+EOF
+```
+> 注：所有操作在ks-master上执行
+
+- signing：表示该证书可用于签名其它证书，生成的 ca.pem 证书中 CA=TRUE；
+- server auth：表示 client 可以用该该证书对 server 提供的证书进行验证；
+- client auth：表示 server 可以用该该证书对 client 提供的证书进行验证；
+
+**创建证书签名请求文件**
+
+```
+cd /opt/k8s/work
+cat > ca-csr.json <<EOF
+{
+  "CN": "kubernetes",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+```
+> 注：所有操作在ks-master上执行
+
+- CN：Common Name，kube-apiserver 从证书中提取该字段作为请求的用户名 (User Name)，浏览器使用该字段验证网站是否合法；
+- O：Organization，kube-apiserver 从证书中提取该字段作为请求用户所属的组 (Group)；
+- kube-apiserver 将提取的 User、Group 作为 RBAC 授权的用户标识；
+
+
+#### 3.3 生成 CA 证书和私钥
+
+```
+cd /opt/k8s/work
+cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+ls ca*
+```
+> 注：所有操作在ks-master上执行
+
+#### 3.4 分发证书文件
+
+将生成的 CA 证书、秘钥文件、配置文件拷贝到所有节点的 /etc/kubernetes/cert 目录下：
+首先执行此脚本加载变量：[environment.sh](common/environment.sh)
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh # 导入 NODE_IPS 环境变量
+for node_ip in ${NODE_IPS[@]}
+  do
+    echo ">>> ${node_ip}"
+    ssh root@${node_ip} "mkdir -p /etc/kubernetes/cert"
+    scp ca*.pem ca-config.json root@${node_ip}:/etc/kubernetes/cert
+  done
+```
+> 注：所有操作在ks-master上执行
+
+### 4. 部署 kubectl 客户端工具
+
+> kubectl 是 kubernetes 集群的命令行管理工具，kubectl 默认从 ~/.kube/config 文件读取 kube-apiserver 地址、证书、用户名等信息，如果没有配置，执行 kubectl 命令时可能会出错：
+
+```
+[root@ks-master bin]# kubectl get pods
+The connection to the server 127.0.0.1:8443 was refused - did you specify the right host or port?
+```
+
+#### 4.1 下载和分发 kubectl 二进制文件
+
+```
+cd /opt/k8s/work
+wget https://dl.k8s.io/v1.13.4/kubernetes-client-linux-amd64.tar.gz
+tar -xzvf kubernetes-client-linux-amd64.tar.gz
+
+
+# 分发到所有使用 kubectl 的节点：
+
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for node_ip in ${NODE_IPS[@]}
+  do
+    echo ">>> ${node_ip}"
+    scp kubernetes/client/bin/kubectl root@${node_ip}:/opt/k8s/bin/
+    ssh root@${node_ip} "chmod +x /opt/k8s/bin/*"
+  done
+```
+
+
+#### 4.2 创建 admin 证书和私钥
+
+> kubectl 与 apiserver https 安全端口通信，apiserver 对提供的证书进行认证和授权。
+
+> kubectl 作为集群的管理工具，需要被授予最高权限。这里创建具有最高权限的 admin 证书。
+
+**创建证书签名请求：**
+
+```
+cd /opt/k8s/work
+cat > admin-csr.json <<EOF
+{
+  "CN": "admin",
+  "hosts": [],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "system:masters",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+```
+
+- O 为 system:masters，kube-apiserver 收到该证书后将请求的 Group 设置为 system:masters；
+- 预定义的 ClusterRoleBinding cluster-admin 将 Group system:masters 与 Role cluster-admin 绑定，该 Role 授予所有 API的权限；
+- 该证书只会被 kubectl 当做 client 证书使用，所以 hosts 字段为空；
+
+**生成证书和私钥:**
+
+```
+cd /opt/k8s/work
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes admin-csr.json | cfssljson -bare admin
+
+ls admin*
+```
+
+#### 4.3 创建 kubeconfig 文件
+
+> kubeconfig 为 kubectl 的配置文件，包含访问 apiserver 的所有信息，如 apiserver 地址、CA 证书和自身使用的证书；
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+
+# 设置集群参数
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kubectl.kubeconfig
+
+# 设置客户端认证参数
+kubectl config set-credentials admin \
+  --client-certificate=/opt/k8s/work/admin.pem \
+  --client-key=/opt/k8s/work/admin-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kubectl.kubeconfig
+
+# 设置上下文参数
+kubectl config set-context kubernetes \
+  --cluster=kubernetes \
+  --user=admin \
+  --kubeconfig=kubectl.kubeconfig
+  
+# 设置默认上下文
+kubectl config use-context kubernetes --kubeconfig=kubectl.kubeconfig
+```
+
+- --certificate-authority：验证 kube-apiserver 证书的根证书；
+- --client-certificate、--client-key：刚生成的 admin 证书和私钥，连接 kube-apiserver 时使用；
+- --embed-certs=true：将 ca.pem 和 admin.pem 证书内容嵌入到生成的 kubectl.kubeconfig 文件中(不加时，写入的是证书文件路径)；
+
+#### 4.4 分发 kubeconfig 文件
+
+> 分发到所有使用 kubectl 命令的节点：
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for node_ip in ${NODE_IPS[@]}
+  do
+    echo ">>> ${node_ip}"
+    ssh root@${node_ip} "mkdir -p ~/.kube"
+    scp kubectl.kubeconfig root@${node_ip}:~/.kube/config
+  done
 ```
 
