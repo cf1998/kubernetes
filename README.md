@@ -10,7 +10,8 @@ Table of Contents
             - [1.3 kubernetes能做什么](#13-kubernetes能做什么)
             - [1.4 kubernetes核心组件](#14-kubernetes核心组件)
             - [1.5 kubernetes二进制安装包下载](#15-kubernetes二进制安装包下载)
-        - [2. kubernetes环境说明](#2-kubernetes环境说明)
+        - [2. kubernetes基础环境部署](#2-kubernetes基础环境部署)
+            - [2.1 kubernetes部署节点环境说明](#21-kubernetes部署节点环境说明)
 
 <!-- /TOC -->
 
@@ -85,13 +86,37 @@ Table of Contents
 
 ![](./images/install_tag.png)
 
-### 2. kubernetes环境说明
+### 2. kubernetes基础环境部署
+
+#### 2.1 kubernetes部署节点环境说明
 
 |            主机名             |   IP Address   |   service   |  
 | :------------------: | :-----------------: | :---------------------------------: |  
 |     ks-master    |    10.10.11.21    |   docker、etcd、api-server、scheduler、controller-manager、kubelet、flannel   | 
 |      ks-node1       |   10.10.11.20    |  docker、etcd、kubelet、proxy、flannel    |
 |  ks-node2 |  10.10.11.19|    docker、etcd、kubelet、proxy、flannel  |
+
+
+**master节点**
+
+> Master节点上面主要由四个模块组成，APIServer，schedule,controller-manager,etcd
+
+> APIServer: APIServer负责对外提供RESTful的kubernetes API的服务，它是系统管理指令的统一接口，任何对资源的增删该查都要交给APIServer处理后再交给etcd，如图，kubectl>(kubernetes提供的客户端工具，该工具内部是对kubernetes API的调用）是直接和APIServer交互的。
+
+>schedule: schedule负责调度Pod到合适的Node上，如果把scheduler看成一个黑匣子，那么它的输入是pod和由多个Node组成的列表，输出是Pod和一个Node的绑定。 kubernetes目前提>供了调度算法，同样也保留了接口。用户根据自己的需求定义自己的调度算法。
+
+>controller manager: 如果APIServer做的是前台的工作的话，那么controller manager就是负责后台的。每一个资源都对应一个控制器。而control manager就是负责管理这些控制器的，比如我们通过APIServer创建了一个Pod，当这个Pod创建成功后，APIServer的任务就算完成了。
+
+>etcd：etcd是一个高可用的键值存储系统，kubernetes使用它来存储各个资源的状态，从而实现了Restful的API。
+
+**node节点**
+
+> 每个Node节点主要由三个模板组成：kublet, kube-proxy
+
+> kube-proxy: 该模块实现了kubernetes中的服务发现和反向代理功能。kube-proxy支持TCP和UDP连接转发，默认基Round Robin算法将客户端流量转发到与service对应的一组后端pod。服务发现方面，kube-proxy使用etcd的watch机制监控集群中service和endpoint对象数据的动态变化，并且维护一个service到endpoint的映射关系，从而保证了后端pod的IP变化不会对访问者造成影响，另外，kube-proxy还支持session affinity。
+
+> kublet：kublet是Master在每个Node节点上面的agent，是Node节点上面最重要的模块，它负责维护和管理该Node上的所有容器，但是如果容器不是通过kubernetes创建的，它并不会管理。本质上，它负责使Pod的运行状态与期望的状态一致。
+
 
 
 
