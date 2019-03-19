@@ -1,0 +1,41 @@
+[Unit]
+Description=Etcd Server
+After=network.target
+After=network-online.target
+Wants=network-online.target
+Documentation=https://github.com/coreos
+
+[Service]
+Type=notify
+WorkingDirectory=/data/k8s/etcd/data
+ExecStart=/opt/k8s/bin/etcd \
+  --data-dir=/data/k8s/etcd/data \
+  --wal-dir=/data/k8s/etcd/wal \
+  --name=ks-node2 \
+  --cert-file=/etc/etcd/cert/etcd.pem \
+  --key-file=/etc/etcd/cert/etcd-key.pem \
+  --trusted-ca-file=/etc/kubernetes/cert/ca.pem \
+  --peer-cert-file=/etc/etcd/cert/etcd.pem \
+  --peer-key-file=/etc/etcd/cert/etcd-key.pem \
+  --peer-trusted-ca-file=/etc/kubernetes/cert/ca.pem \
+  --peer-client-cert-auth \
+  --client-cert-auth \
+  --listen-peer-urls=https://10.10.11.19:2380 \
+  --initial-advertise-peer-urls=https://10.10.11.19:2380 \
+  --listen-client-urls=https://10.10.11.19:2379,http://127.0.0.1:2379 \
+  --advertise-client-urls=https://10.10.11.19:2379 \
+  --initial-cluster-token=etcd-cluster-0 \
+  --initial-cluster=ks-master=https://10.10.11.21:2380,ks-node1=https://10.10.11.20:2380,ks-node2=https://10.10.11.19:2380 \
+  --initial-cluster-state=new \
+  --auto-compaction-mode=periodic \
+  --auto-compaction-retention=1 \
+  --max-request-bytes=33554432 \
+  --quota-backend-bytes=6442450944 \
+  --heartbeat-interval=250 \
+  --election-timeout=2000
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
