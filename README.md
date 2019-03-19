@@ -10,6 +10,7 @@ Table of Contents
             - [1.3 kubernetes能做什么](#13-kubernetes能做什么)
             - [1.4 kubernetes核心组件](#14-kubernetes核心组件)
             - [1.5 kubernetes二进制安装包下载](#15-kubernetes二进制安装包下载)
+        - [2. kubernetes环境说明](#2-kubernetes环境说明)
 
 <!-- /TOC -->
 
@@ -84,6 +85,13 @@ Table of Contents
 
 ![](./images/install_tag.png)
 
+### 2. kubernetes环境说明
+
+|            主机名             |   IP Address   |   service   |  
+| :------------------: | :-----------------: | :---------------------------------: |  
+|     ks-master    |    10.10.11.21    |   docker、etcd、api-server、scheduler、controller-manager、kubelet、flannel   | 
+|      ks-node1       |   10.10.11.20    |  docker、etcd、kubelet、proxy、flannel    |
+|  ks-node2 |  10.10.11.19|    docker、etcd、kubelet、proxy、flannel  |
 
 
 
