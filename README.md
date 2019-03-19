@@ -12,6 +12,10 @@ Table of Contents
             - [1.5 kubernetes二进制安装包下载](#15-kubernetes二进制安装包下载)
         - [2. kubernetes基础环境部署](#2-kubernetes基础环境部署)
             - [2.1 kubernetes部署节点环境说明](#21-kubernetes部署节点环境说明)
+            - [2.2 kubernetes部署前准备](#22-kubernetes部署前准备)
+            - [2.3 kubernetes节点系统优化](#23-kubernetes节点系统优化)
+            - [2.4 安装Docker-CE](#24-安装docker-ce)
+            - [2.5 配置Docker镜像加速](#25-配置docker镜像加速)
 
 <!-- /TOC -->
 
@@ -117,11 +121,124 @@ Table of Contents
 
 > kublet：kublet是Master在每个Node节点上面的agent，是Node节点上面最重要的模块，它负责维护和管理该Node上的所有容器，但是如果容器不是通过kubernetes创建的，它并不会管理。本质上，它负责使Pod的运行状态与期望的状态一致。
 
+#### 2.2 kubernetes部署前准备
+
+**配置所有节点主机名**
+
+```
+# 配置主机名
+[root@ks-master ~]# hostnamectl set-hostname ks-master
+[root@ks-node1 ~]# hostnamectl set-hostname ks-node1
+[root@ks-node2 ~]# hostnamectl set-hostname ks-node2
+
+# 配置hosts记录
+
+cat <<EOF > /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+10.10.11.21  ks-master
+10.10.11.20  ks-node1
+10.10.11.19  ks-node2
+EOF
+
+# 配置免密钥登陆
+
+[root@ks-master ~]# ssh-keygen    
+Generating public/private rsa key pair.
+Enter file in which to save the key (/root/.ssh/id_rsa):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /root/.ssh/id_rsa.
+Your public key has been saved in /root/.ssh/id_rsa.pub.
+The key fingerprint is:
+SHA256:fIPG7HsiNiDfQ3e0eITt4tB9mR6JcHNF0di90R1F9rc root@ks-master
+The key's randomart image is:
++---[RSA 2048]----+
+|             .oBX|
+|              ooB|
+|         o   .  =|
+|       +o.* .  .o|
+|       .SOo= + E |
+|  . . oo=.B.*    |
+|   o + +.+ o .   |
+|    . * o.. .    |
+|     . +.o       |
++----[SHA256]-----+
+
+[root@ks-master ~]# ssh-copy-id ks-master
+[root@ks-master ~]# ssh-copy-id ks-node1
+[root@ks-master ~]# ssh-copy-id ks-node2
+
+```
+
+#### 2.3 kubernetes节点系统优化
+
+```
+# 关闭防火墙
+systemctl stop firewalld
+systemctl disable firewalld
+
+# 关闭Swap
+swapoff -a 
+sed -i 's/.*swap.*/#&/' /etc/fstab
+
+# 禁用Selinux
+setenforce  0 
+sed -i "s/^SELINUX=enforcing/SELINUX=disabled/g" /etc/sysconfig/selinux 
+sed -i "s/^SELINUX=enforcing/SELINUX=disabled/g" /etc/selinux/config 
+sed -i "s/^SELINUX=permissive/SELINUX=disabled/g" /etc/sysconfig/selinux 
+sed -i "s/^SELINUX=permissive/SELINUX=disabled/g" /etc/selinux/config  
+
+# 报错请参考下面报错处理
+modprobe br_netfilter   
+cat <<EOF >  /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+vm.swappiness=0
+EOF
+sysctl -p /etc/sysctl.d/k8s.conf
+ls /proc/sys/net/bridge
+
+# 内核优化
+echo "* soft nofile 204800" >> /etc/security/limits.conf
+echo "* hard nofile 204800" >> /etc/security/limits.conf
+echo "* soft nproc 204800"  >> /etc/security/limits.conf
+echo "* hard nproc 204800"  >> /etc/security/limits.conf
+echo "* soft  memlock  unlimited"  >> /etc/security/limits.conf
+echo "* hard memlock  unlimited"  >> /etc/security/limits.conf
+
+```
+> 注：kubernetes所有节点执行
 
 
+#### 2.4 安装Docker-CE
 
+```
+yum install -y yum-utils device-mapper-persistent-data lvm2
+yum-config-manager \
+    --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
 
+yum makecache fast
+yum install -y --setopt=obsoletes=0 \
+  docker-ce-18.06.1.ce-3.el7
 
+systemctl start docker
+systemctl enable docker
+```
+> 注：kubernetes所有节点执行
 
+#### 2.5 配置Docker镜像加速
 
+```
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<-'EOF'
+{
+  "registry-mirrors": ["https://95d2qlt5.mirror.aliyuncs.com"]
+}
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```
 
