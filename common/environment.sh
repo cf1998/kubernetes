@@ -19,7 +19,7 @@ export ETCD_NODES="ks-master=https://10.10.11.21:2380,ks-node1=https://10.10.11.
 export KUBE_APISERVER="https://127.0.0.1:8443"
 
 # 节点间互联网络接口名称
-export IFACE="eth0"
+export IFACE="ens192"
 
 # etcd 数据目录
 export ETCD_DATA_DIR="/data/k8s/etcd/data"
