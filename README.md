@@ -45,6 +45,9 @@ Table of Contents
             - [6.5 分发 flanneld systemd unit 文件到所有节点](#65-分发-flanneld-systemd-unit-文件到所有节点)
             - [6.6 启动 flanneld 服务](#66-启动-flanneld-服务)
             - [6.7 检查启动结果](#67-检查启动结果)
+        - [7. 部署以及分发master安装包](#7-部署以及分发master安装包)
+            - [7.1 master节点所需组件](#71-master节点所需组件)
+            - [7.2 下载最新版本的二进制文件](#72-下载最新版本的二进制文件)
 
 <!-- /TOC -->
 
@@ -1010,6 +1013,50 @@ for node_ip in ${NODE_IPS[@]}
 ```
 
 > 注：所有操作在ks-master上执行
+
+
+### 7. 部署以及分发master安装包
+
+#### 7.1 master节点所需组件
+
+**kubernetes master 节点运行如下组件：**
+
+- kube-apiserver
+- kube-scheduler
+- kube-controller-manager
+
+> 注：
+> kube-scheduler、kube-controller-manager 和 kube-apiserver 三者的功能紧密相关；
+> 同时只能有一个 kube-scheduler、kube-controller-manager 进程处于工作状态，如果运行多个，则需要通过选举产生一个 leader；
+
+#### 7.2 下载最新版本的二进制文件
+
+```
+cd /opt/k8s/work
+wget https://dl.k8s.io/v1.13.4/kubernetes-server-linux-amd64.tar.gz
+tar -xzvf kubernetes-server-linux-amd64.tar.gz
+cd kubernetes
+tar -xzvf  kubernetes-src.tar.gz
+
+
+
+# 将二进制文件拷贝到 master 节点：
+
+cd /opt/k8s/work/kubernetes
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${MASTER_IPS}"
+    scp server/bin/* root@${master_ip}:/opt/k8s/bin/
+    ssh root@${master_ip} "chmod +x /opt/k8s/bin/*"
+  done
+
+
+```
+
+> 注：所有操作在ks-master上执行
+
+
 
 
 
