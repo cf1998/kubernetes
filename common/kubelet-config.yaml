@@ -1,0 +1,25 @@
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+  x509:
+    clientCAFile: "/etc/kubernetes/cert/ca.pem"
+authorization:
+  mode: Webhook
+clusterDomain: "cluster.local"
+clusterDNS:
+  - "10.254.0.2"
+podCIDR: ""
+maxPods: 220
+serializeImagePulls: false
+hairpinMode: promiscuous-bridge
+cgroupDriver: cgroupfs
+runtimeRequestTimeout: "15m"
+rotateCertificates: true
+serverTLSBootstrap: true
+readOnlyPort: 0
+port: 10250
+address: "10.10.11.21"

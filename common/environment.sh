@@ -6,6 +6,10 @@ export ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
 # 集群各机器 IP 数组
 export NODE_IPS=(10.10.11.21 10.10.11.20 10.10.11.19)
 
+#集群WOEKER机器 IP 数组
+
+export WORKER_IPS=(10.10.11.20 10.10.11.19)
+
 # 集群master IP 数组
 export MASTER_IPS=(10.10.11.21)
 
