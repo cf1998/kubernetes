@@ -48,6 +48,14 @@ Table of Contents
         - [7. 部署以及分发master安装包](#7-部署以及分发master安装包)
             - [7.1 master节点所需组件](#71-master节点所需组件)
             - [7.2 下载最新版本的二进制文件](#72-下载最新版本的二进制文件)
+        - [8. 部署kube-apiserver组件](#8-部署kube-apiserver组件)
+            - [8.1 创建 kubernetes 证书和私钥](#81-创建-kubernetes-证书和私钥)
+            - [8.2 创建加密配置文件](#82-创建加密配置文件)
+            - [8.3 创建 kube-apiserver systemd unit 模板文件](#83-创建-kube-apiserver-systemd-unit-模板文件)
+            - [8.4 为各节点创建和分发 kube-apiserver systemd unit 文件](#84-为各节点创建和分发-kube-apiserver-systemd-unit-文件)
+            - [8.5 启动 kube-apiserver 服务](#85-启动-kube-apiserver-服务)
+            - [8.6 检查 kube-apiserver 运行状态](#86-检查-kube-apiserver-运行状态)
+            - [8.7 检查 kube-apiserver 监听的端口](#87-检查-kube-apiserver-监听的端口)
 
 <!-- /TOC -->
 
@@ -1057,8 +1065,267 @@ for master_ip in ${MASTER_IPS[@]}
 > 注：所有操作在ks-master上执行
 
 
+### 8. 部署kube-apiserver组件
+
+#### 8.1 创建 kubernetes 证书和私钥
+
+**创建证书签名请求**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+cat > kubernetes-csr.json <<EOF
+{
+  "CN": "kubernetes",
+  "hosts": [
+    "127.0.0.1",
+    "10.10.11.21",
+    "${CLUSTER_KUBERNETES_SVC_IP}",
+    "kubernetes",
+    "kubernetes.default",
+    "kubernetes.default.svc",
+    "kubernetes.default.svc.cluster",
+    "kubernetes.default.svc.cluster.local"
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+```
+
+> 注：json文件内环境变量读[environment.sh](common/environment.sh)
+
+
+- hosts 字段指定授权使用该证书的 IP 或域名列表，这里列出了 VIP 、apiserver 节点 IP、kubernetes 服务 IP 和域名；
+
+- 域名最后字符不能是 .(如不能为 kubernetes.default.svc.cluster.local.)，否则解析时失败，提示： x509: cannot parse dnsName "kubernetes.default.svc.cluster.local."；
+
+- 如果使用非 cluster.local 域名，如 opsnull.com，则需要修改域名列表中的最后两个域名为：kubernetes.default.svc.opsnull、kubernetes.default.svc.opsnull.com
+
+- kubernetes 服务 IP 是 apiserver 自动创建的，一般是 --service-cluster-ip-range 参数指定的网段的第一个IP，后续可以通过如下命令获取：
+
+```
+[root@ks-master ~]# kubectl get svc kubernetes
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.254.0.1   <none>        443/TCP   26h
+
+```
+
+**生成证书和私钥：**
+
+```
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes kubernetes-csr.json | cfssljson -bare kubernetes
+ls kubernetes*pem
+```
+
+**将生成的证书和私钥文件拷贝到 master 节点：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for node_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "mkdir -p /etc/kubernetes/cert"
+    scp kubernetes*.pem root@${master_ip}:/etc/kubernetes/cert/
+  done
+```
 
 
 
+#### 8.2 创建加密配置文件
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+cat > encryption-config.yaml <<EOF
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: ${ENCRYPTION_KEY}
+      - identity: {}
+EOF
+```
+
+
+**将加密配置文件拷贝到 master 节点的 /etc/kubernetes 目录下：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp encryption-config.yaml root@${master_ip}:/etc/kubernetes/
+  done
+```
+
+[encryption-config.yaml](common/encryption-config.yaml)
+
+
+#### 8.3 创建 kube-apiserver systemd unit 模板文件
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+cat > kube-apiserver.service.template <<EOF
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+
+[Service]
+WorkingDirectory=${K8S_DIR}/kube-apiserver
+ExecStart=/opt/k8s/bin/kube-apiserver \\
+  --enable-admission-plugins=Initializers,NamespaceLifecycle,NodeRestriction,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota \\
+  --anonymous-auth=false \\
+  --experimental-encryption-provider-config=/etc/kubernetes/encryption-config.yaml \\
+  --advertise-address=##MASTER_IP## \\
+  --bind-address=##MASTER_IP## \\
+  --insecure-port=0 \\
+  --authorization-mode=Node,RBAC \\
+  --runtime-config=api/all \\
+  --enable-bootstrap-token-auth \\
+  --service-cluster-ip-range=${SERVICE_CIDR} \\
+  --service-node-port-range=${NODE_PORT_RANGE} \\
+  --tls-cert-file=/etc/kubernetes/cert/kubernetes.pem \\
+  --tls-private-key-file=/etc/kubernetes/cert/kubernetes-key.pem \\
+  --client-ca-file=/etc/kubernetes/cert/ca.pem \\
+  --kubelet-certificate-authority=/etc/kubernetes/cert/ca.pem \\
+  --kubelet-client-certificate=/etc/kubernetes/cert/kubernetes.pem \\
+  --kubelet-client-key=/etc/kubernetes/cert/kubernetes-key.pem \\
+  --kubelet-https=true \\
+  --service-account-key-file=/etc/kubernetes/cert/ca.pem \\
+  --etcd-cafile=/etc/kubernetes/cert/ca.pem \\
+  --etcd-certfile=/etc/kubernetes/cert/kubernetes.pem \\
+  --etcd-keyfile=/etc/kubernetes/cert/kubernetes-key.pem \\
+  --etcd-servers=${ETCD_ENDPOINTS} \\
+  --enable-swagger-ui=true \\
+  --allow-privileged=true \\
+  --max-mutating-requests-inflight=2000 \\
+  --max-requests-inflight=4000 \\
+  --apiserver-count=3 \\
+  --audit-log-maxage=30 \\
+  --audit-log-maxbackup=3 \\
+  --audit-log-maxsize=100 \\
+  --audit-log-path=${K8S_DIR}/kube-apiserver/audit.log \\
+  --event-ttl=168h \\
+  --logtostderr=true \\
+  --v=2
+Restart=on-failure
+RestartSec=5
+Type=notify
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+
+- --experimental-encryption-provider-config：启用加密特性；
+- --authorization-mode=Node,RBAC： 开启 Node 和 RBAC 授权模式，拒绝未授权的请求；
+- --enable-admission-plugins：启用 ServiceAccount 和 NodeRestriction；
+- --service-account-key-file：签名 ServiceAccount Token 的公钥文件，kube-controller-manager 的 --service-account-private-key-file 指定私钥文件，两者配对使用；
+- --tls-*-file：指定 apiserver 使用的证书、私钥和 CA 文件。--client-ca-file 用于验证 client (kue-controller-manager、kube-scheduler、kubelet、kube-proxy 等)请求所带的证书；
+- --kubelet-client-certificate、--kubelet-client-key：如果指定，则使用 https 访问 kubelet APIs；需要为证书对应的用户(上面 kubernetes*.pem 证书的用户为 kubernetes) 用户定义 RBAC 规则，否则访问 kubelet API 时提示未授权；
+- --bind-address： 不能为 127.0.0.1，否则外界不能访问它的安全端口 6443；
+- --insecure-port=0：关闭监听非安全端口(8080)；
+- --service-cluster-ip-range： 指定 Service Cluster IP 地址段；
+- --service-node-port-range： 指定 NodePort 的端口范围；
+- --runtime-config=api/all=true： 启用所有版本的 APIs，如 autoscaling/v2alpha1；
+- --enable-bootstrap-token-auth：启用 kubelet bootstrap 的 token 认证；
+- --apiserver-count=3：指定集群运行模式，多台 kube-apiserver 会通过 leader 选举产生一个工作节点，其它节点处于阻塞状态；
+
+
+[kube-apiserver.service](kube-apiserver.service)
+
+> 注：如启动失败，则参考如上配置文件
+
+> 注：所有操作在ks-master上执行
+
+
+#### 8.4 为各节点创建和分发 kube-apiserver systemd unit 文件
+
+**替换模板文件中的变量，为各节点创建 systemd unit 文件：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for (( i=0; i < 3; i++ ))
+  do
+    sed -e "s/##MASTER_NAME##/${MASTER_NAMES[i]}/" -e "s/##MASTER_IP##/${MASTER_IPS[i]}/" kube-apiserver.service.template > kube-apiserver-${MASTER_IPS[i]}.service 
+  done
+ls kube-apiserver*.service
+```
+- NODE_NAMES 和 NODE_IPS 为相同长度的 bash 数组，分别为节点名称和对应的 IP；
+
+**分发生成的 systemd unit 文件：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-apiserver-${master_ip}.service root@${master_ip}:/etc/systemd/system/kube-apiserver.service
+  done
+```
+#### 8.5 启动 kube-apiserver 服务
+
+```
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "mkdir -p ${K8S_DIR}/kube-apiserver"
+    ssh root@${master_ip} "systemctl daemon-reload && systemctl enable kube-apiserver && systemctl restart kube-apiserver"
+  done
+```
+
+#### 8.6 检查 kube-apiserver 运行状态
+
+```
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "systemctl status kube-apiserver |grep 'Active:'"
+  done
+```
+
+
+#### 8.7 检查 kube-apiserver 监听的端口
+
+
+```
+[root@ks-master ~]# netstat -anpt | grep 6443
+tcp        0      0 10.10.11.21:6443        0.0.0.0:*               LISTEN      4026/kube-apiserver
+```
+
+
+> 6443: 接收 https 请求的安全端口，对所有请求做认证和授权；
+> 由于关闭了非安全端口，故没有监听 8080；
 
 

@@ -1,0 +1,53 @@
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+
+[Service]
+WorkingDirectory=/data/k8s/k8s/kube-apiserver
+ExecStart=/opt/k8s/bin/kube-apiserver \
+  --enable-admission-plugins=Initializers,NamespaceLifecycle,NodeRestriction,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota \
+  --anonymous-auth=false \
+  --experimental-encryption-provider-config=/etc/kubernetes/encryption-config.yaml \
+  --advertise-address=10.10.11.21 \
+  --bind-address=10.10.11.21 \
+  --insecure-port=0 \
+  --authorization-mode=Node,RBAC \
+  --runtime-config=api/all \
+  --enable-bootstrap-token-auth \
+  --service-cluster-ip-range=10.254.0.0/16 \
+  --service-node-port-range=30000-32767 \
+  --tls-cert-file=/etc/kubernetes/cert/kubernetes.pem \
+  --tls-private-key-file=/etc/kubernetes/cert/kubernetes-key.pem \
+  --client-ca-file=/etc/kubernetes/cert/ca.pem \
+  --kubelet-certificate-authority=/etc/kubernetes/cert/ca.pem \
+  --kubelet-client-certificate=/etc/kubernetes/cert/kubernetes.pem \
+  --kubelet-client-key=/etc/kubernetes/cert/kubernetes-key.pem \
+  --kubelet-https=true \
+  --service-account-key-file=/etc/kubernetes/cert/ca.pem \
+  --etcd-cafile=/etc/kubernetes/cert/ca.pem \
+  --etcd-certfile=/etc/kubernetes/cert/kubernetes.pem \
+  --etcd-keyfile=/etc/kubernetes/cert/kubernetes-key.pem \
+  --etcd-servers=https://10.10.11.21:2379,https://10.10.11.20:2379,https://10.10.11.19:2379 \
+  --enable-swagger-ui=true \
+  --allow-privileged=true \
+  --max-mutating-requests-inflight=2000 \
+  --max-requests-inflight=4000 \
+  --apiserver-count=3 \
+  --audit-log-maxage=30 \
+  --audit-log-maxbackup=3 \
+  --audit-log-maxsize=100 \
+  --audit-log-path=/data/k8s/k8s/kube-apiserver/audit.log \
+  --event-ttl=168h \
+  --logtostderr=true \
+  --alsologtostderr=true \
+  --logtostderr=false \
+  --log-dir=/var/log/kubernetes \
+  --v=2
+Restart=on-failure
+RestartSec=5
+Type=notify
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

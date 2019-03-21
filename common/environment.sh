@@ -9,6 +9,8 @@ export NODE_IPS=(10.10.11.21 10.10.11.20 10.10.11.19)
 # 集群master IP 数组
 export MASTER_IPS=(10.10.11.21)
 
+# 集群master主机名
+export MASTER_NAMES=(ks-master)
 
 # 集群各 IP 对应的 主机名数组
 export NODE_NAMES=(ks-master ks-node1 ks-node2 )
@@ -20,7 +22,7 @@ export ETCD_ENDPOINTS="https://10.10.11.21:2379,https://10.10.11.20:2379,https:/
 export ETCD_NODES="ks-master=https://10.10.11.21:2380,ks-node1=https://10.10.11.20:2380,ks-node2=https://10.10.11.19:2380"
 
 # kube-apiserver 的反向代理(kube-nginx)地址端口
-export KUBE_APISERVER="https://127.0.0.1:8443"
+export KUBE_APISERVER="https://127.0.0.1:6443"
 
 # 节点间互联网络接口名称
 export IFACE="ens192"
