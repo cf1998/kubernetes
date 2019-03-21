@@ -57,11 +57,11 @@ Table of Contents
             - [8.6 检查 kube-apiserver 运行状态](#86-检查-kube-apiserver-运行状态)
             - [8.7 检查 kube-apiserver 监听的端口](#87-检查-kube-apiserver-监听的端口)
         - [9. 部署 kube-controller-manager 组件](#9-部署-kube-controller-manager-组件)
-        - [9.1 创建 kube-controller-manager 证书和私钥](#91-创建-kube-controller-manager-证书和私钥)
-        - [9.2 创建和分发 kubeconfig 文件](#92-创建和分发-kubeconfig-文件)
-        - [9.3 创建和分发 kube-controller-manager systemd unit 文件](#93-创建和分发-kube-controller-manager-systemd-unit-文件)
-        - [9.4  kube-controller-manager 服务](#94--kube-controller-manager-服务)
-        - [9.5 检查服务运行状态](#95-检查服务运行状态)
+            - [9.1 创建 kube-controller-manager 证书和私钥](#91-创建-kube-controller-manager-证书和私钥)
+            - [9.2 创建和分发 kubeconfig 文件](#92-创建和分发-kubeconfig-文件)
+            - [9.3 创建和分发 kube-controller-manager systemd unit 文件](#93-创建和分发-kube-controller-manager-systemd-unit-文件)
+            - [9.4  kube-controller-manager 服务](#94--kube-controller-manager-服务)
+            - [9.5 检查服务运行状态](#95-检查服务运行状态)
 
 <!-- /TOC -->
 
@@ -1345,7 +1345,7 @@ tcp        0      0 10.10.11.21:6443        0.0.0.0:*               LISTEN      
 
 ### 9. 部署 kube-controller-manager 组件
 
-### 9.1 创建 kube-controller-manager 证书和私钥
+#### 9.1 创建 kube-controller-manager 证书和私钥
 
 **创建证书签名请求：**
 
@@ -1409,7 +1409,7 @@ for master_ip in ${MASTER_IPS[@]}
 
 > 注：所有操作在ks-master上执行
 
-### 9.2 创建和分发 kubeconfig 文件
+#### 9.2 创建和分发 kubeconfig 文件
 
 **kubeconfig 文件包含访问 apiserver 的所有信息，如 apiserver 地址、CA 证书和自身使用的证书；**
 
@@ -1453,7 +1453,7 @@ for master_ip in ${MASTER_IPS[@]}
 
 > 注：所有操作在ks-master上执行
 
-### 9.3 创建和分发 kube-controller-manager systemd unit 文件
+#### 9.3 创建和分发 kube-controller-manager systemd unit 文件
 
 ```
 cd /opt/k8s/work
@@ -1531,7 +1531,7 @@ for master_ip in ${MASTER_IPS[@]}
 
 > 注：所有操作在ks-master上执行
 
-### 9.4  kube-controller-manager 服务
+#### 9.4  kube-controller-manager 服务
 
 ```
 source /opt/k8s/bin/environment.sh
@@ -1548,7 +1548,7 @@ for master_ip in ${MASTER_IPS[@]}
 
 
 
-### 9.5 检查服务运行状态
+#### 9.5 检查服务运行状态
 
 ```
 source /opt/k8s/bin/environment.sh
