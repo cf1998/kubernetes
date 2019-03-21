@@ -62,6 +62,14 @@ Table of Contents
             - [9.3 创建和分发 kube-controller-manager systemd unit 文件](#93-创建和分发-kube-controller-manager-systemd-unit-文件)
             - [9.4  kube-controller-manager 服务](#94--kube-controller-manager-服务)
             - [9.5 检查服务运行状态](#95-检查服务运行状态)
+        - [10. 部署 kube-scheduler 组件](#10-部署-kube-scheduler-组件)
+            - [10.1 创建 kube-scheduler 证书和私钥](#101-创建-kube-scheduler-证书和私钥)
+            - [10.2 创建和分发 kubeconfig 文件](#102-创建和分发-kubeconfig-文件)
+            - [10.3 创建 kube-scheduler 配置文件](#103-创建-kube-scheduler-配置文件)
+            - [10.4 创建和分发 kube-scheduler systemd unit 文件](#104-创建和分发-kube-scheduler-systemd-unit-文件)
+            - [10.5 启动 kube-scheduler 服务](#105-启动-kube-scheduler-服务)
+            - [10.6 检查服务运行状态](#106-检查服务运行状态)
+        - [11. 部署 kubelet 组件](#11-部署-kubelet-组件)
 
 <!-- /TOC -->
 
@@ -1564,3 +1572,232 @@ for master_ip in ${MASTER_IPS[@]}
 tcp        0      0 127.0.0.1:10257         0.0.0.0:*               LISTEN      15808/kube-controll
 tcp6       0      0 :::10252                :::*                    LISTEN      15808/kube-controll
 ```
+
+> 注：所有操作在ks-master上执行
+
+
+### 10. 部署 kube-scheduler 组件
+
+#### 10.1 创建 kube-scheduler 证书和私钥
+
+**创建证书签名请求：**
+
+```
+cd /opt/k8s/work
+cat > kube-scheduler-csr.json <<EOF
+{
+    "CN": "system:kube-scheduler",
+    "hosts": [
+      "127.0.0.1",
+      "10.10.11.21"
+    ],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [
+      {
+        "C": "CN",
+        "ST": "BeiJing",
+        "L": "BeiJing",
+        "O": "system:kube-scheduler",
+        "OU": "4Paradigm"
+      }
+    ]
+}
+EOF
+```
+
+> 注：所有操作在ks-master上执行
+
+- hosts 列表包含所有 kube-scheduler 节点 IP；
+- CN 为 system:kube-scheduler、O 为 system:kube-scheduler，kubernetes 内置的 ClusterRoleBindings system:kube-scheduler 将赋予 kube-scheduler 工作所需的权限。
+
+
+**生成证书和私钥：**
+
+```
+cd /opt/k8s/work
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes kube-scheduler-csr.json | cfssljson -bare kube-scheduler
+ls kube-scheduler*pem
+```
+> 注：所有操作在ks-master上执行
+
+#### 10.2 创建和分发 kubeconfig 文件
+
+**kubeconfig 文件包含访问 apiserver 的所有信息，如 apiserver 地址、CA 证书和自身使用的证书；**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-scheduler.kubeconfig
+
+kubectl config set-credentials system:kube-scheduler \
+  --client-certificate=kube-scheduler.pem \
+  --client-key=kube-scheduler-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-scheduler.kubeconfig
+
+kubectl config set-context system:kube-scheduler \
+  --cluster=kubernetes \
+  --user=system:kube-scheduler \
+  --kubeconfig=kube-scheduler.kubeconfig
+
+kubectl config use-context system:kube-scheduler --kubeconfig=kube-scheduler.kubeconfig
+
+```
+
+> 注：所有操作在ks-master上执行
+
+
+**分发 kubeconfig 到所有 master 节点：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-scheduler.kubeconfig root@${master_ip}:/etc/kubernetes/
+  done
+```
+
+> 注：所有操作在ks-master上执行
+
+#### 10.3 创建 kube-scheduler 配置文件
+
+
+```
+cat <<EOF | sudo tee kube-scheduler.yaml
+apiVersion: componentconfig/v1alpha1
+kind: KubeSchedulerConfiguration
+clientConnection:
+  kubeconfig: "/etc/kubernetes/kube-scheduler.kubeconfig"
+leaderElection:
+  leaderElect: true
+EOF
+```
+
+> 注：所有操作在ks-master上执行
+
+- --kubeconfig：指定 kubeconfig 文件路径，kube-scheduler 使用它连接和验证 kube-apiserver；
+- --leader-elect=true：集群运行模式，启用选举功能；被选为 leader 的节点负责处理工作，其它节点为阻塞状态；
+
+分发 kube-scheduler 配置文件到 master 节点：
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-scheduler.yaml root@${master_ip}:/etc/kubernetes/
+  done
+```
+
+> 注：所有操作在ks-master上执行
+
+#### 10.4 创建和分发 kube-scheduler systemd unit 文件
+
+```
+cd /opt/k8s/work
+cat > kube-scheduler.service <<EOF
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+WorkingDirectory=${K8S_DIR}/kube-scheduler
+ExecStart=/opt/k8s/bin/kube-scheduler \\
+  --config=/etc/kubernetes/kube-scheduler.yaml \\
+  --address=127.0.0.1 \\
+  --kube-api-qps=100 \\
+  --logtostderr=true \\
+  --v=2
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+```
+
+> 注：所有操作在ks-master上执行
+
+- --address：在 127.0.0.1:10251 端口接收 http /metrics 请求；kube-scheduler 目前还不支持接收 https 请求；
+
+[kube-scheduler.service](common/kube-scheduler.service)
+
+**分发 systemd unit 文件到 master 节点：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-scheduler.service root@${master_ip}:/etc/systemd/system/
+  done
+```
+
+> 注：所有操作在ks-master上执行
+
+#### 10.5 启动 kube-scheduler 服务
+
+```
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "mkdir -p ${K8S_DIR}/kube-scheduler"
+    ssh root@${master_ip} "systemctl daemon-reload && systemctl enable kube-scheduler && systemctl restart kube-scheduler"
+  done
+```
+
+> 注：所有操作在ks-master上执行
+
+#### 10.6 检查服务运行状态
+
+```
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "systemctl status kube-scheduler|grep Active"
+  done
+```
+
+
+```
+[root@ks-master ~]# netstat -lnpt|grep kube-sche
+tcp6       0      0 :::10251                :::*                    LISTEN      15292/kube-schedule
+tcp6       0      0 :::10259                :::*                    LISTEN      15292/kube-schedule
+```
+> 注：kube-scheduler监听了10251 端口
+
+> 注：所有操作在ks-master上执行
+
+
+```
+# 查看 controller-manager controller-manager的MESSAGE 为ok ，所说明是正常的
+[root@ks-master ~]# kubectl get cs
+NAME                 STATUS    MESSAGE             ERROR
+scheduler            Healthy   ok
+controller-manager   Healthy   ok
+etcd-0               Healthy   {"health":"true"}
+etcd-2               Healthy   {"health":"true"}
+etcd-1               Healthy   {"health":"true"}
+```
+
+
+### 11. 部署 kubelet 组件
+
