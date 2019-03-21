@@ -56,6 +56,12 @@ Table of Contents
             - [8.5 启动 kube-apiserver 服务](#85-启动-kube-apiserver-服务)
             - [8.6 检查 kube-apiserver 运行状态](#86-检查-kube-apiserver-运行状态)
             - [8.7 检查 kube-apiserver 监听的端口](#87-检查-kube-apiserver-监听的端口)
+        - [9. 部署 kube-controller-manager 组件](#9-部署-kube-controller-manager-组件)
+        - [9.1 创建 kube-controller-manager 证书和私钥](#91-创建-kube-controller-manager-证书和私钥)
+        - [9.2 创建和分发 kubeconfig 文件](#92-创建和分发-kubeconfig-文件)
+        - [9.3 创建和分发 kube-controller-manager systemd unit 文件](#93-创建和分发-kube-controller-manager-systemd-unit-文件)
+        - [9.4  kube-controller-manager 服务](#94--kube-controller-manager-服务)
+        - [9.5 检查服务运行状态](#95-检查服务运行状态)
 
 <!-- /TOC -->
 
@@ -1281,6 +1287,10 @@ ls kube-apiserver*.service
 ```
 - NODE_NAMES 和 NODE_IPS 为相同长度的 bash 数组，分别为节点名称和对应的 IP；
 
+
+> 注：所有操作在ks-master上执行
+
+
 **分发生成的 systemd unit 文件：**
 
 ```
@@ -1304,6 +1314,8 @@ for master_ip in ${MASTER_IPS[@]}
   done
 ```
 
+> 注：所有操作在ks-master上执行
+
 #### 8.6 检查 kube-apiserver 运行状态
 
 ```
@@ -1315,6 +1327,7 @@ for master_ip in ${MASTER_IPS[@]}
   done
 ```
 
+> 注：所有操作在ks-master上执行
 
 #### 8.7 检查 kube-apiserver 监听的端口
 
@@ -1328,4 +1341,226 @@ tcp        0      0 10.10.11.21:6443        0.0.0.0:*               LISTEN      
 > 6443: 接收 https 请求的安全端口，对所有请求做认证和授权；
 > 由于关闭了非安全端口，故没有监听 8080；
 
+> 注：所有操作在ks-master上执行
 
+### 9. 部署 kube-controller-manager 组件
+
+### 9.1 创建 kube-controller-manager 证书和私钥
+
+**创建证书签名请求：**
+
+```
+cd /opt/k8s/work
+cat > kube-controller-manager-csr.json <<EOF
+{
+    "CN": "system:kube-controller-manager",
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "hosts": [
+      "127.0.0.1",
+      "10.10.11.21"
+    ],
+    "names": [
+      {
+        "C": "CN",
+        "ST": "BeiJing",
+        "L": "BeiJing",
+        "O": "system:kube-controller-manager",
+        "OU": "4Paradigm"
+      }
+    ]
+}
+EOF
+```
+
+- hosts 列表包含所有 kube-controller-manager 节点 IP；
+- CN 为 system:kube-controller-manager、O 为 system:kube-controller-manager，kubernetes 内置的 ClusterRoleBindings system:kube-controller-manager 赋予 kube-controller-manager 工作所需的权限。
+
+> 注：所有操作在ks-master上执行
+
+**生成证书和私钥：**
+
+```
+cd /opt/k8s/work
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes kube-controller-manager-csr.json | cfssljson -bare kube-controller-manager
+ls kube-controller-manager*pem
+```
+
+> 注：所有操作在ks-master上执行
+
+
+
+**将生成的证书和私钥分发到 master 节点：**
+
+ ```
+ cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-controller-manager*.pem root@${master_ip}:/etc/kubernetes/cert/
+  done
+ ```
+
+> 注：所有操作在ks-master上执行
+
+### 9.2 创建和分发 kubeconfig 文件
+
+**kubeconfig 文件包含访问 apiserver 的所有信息，如 apiserver 地址、CA 证书和自身使用的证书；**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-controller-manager.kubeconfig
+
+kubectl config set-credentials system:kube-controller-manager \
+  --client-certificate=kube-controller-manager.pem \
+  --client-key=kube-controller-manager-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-controller-manager.kubeconfig
+
+kubectl config set-context system:kube-controller-manager \
+  --cluster=kubernetes \
+  --user=system:kube-controller-manager \
+  --kubeconfig=kube-controller-manager.kubeconfig       
+
+kubectl config use-context system:kube-controller-manager --kubeconfig=kube-controller-manager.kubeconfig
+```
+
+> 注：所有操作在ks-master上执行
+
+
+**分发 kubeconfig 到 master 节点：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-controller-manager.kubeconfig root@${master_ip}:/etc/kubernetes/
+  done
+```
+
+> 注：所有操作在ks-master上执行
+
+### 9.3 创建和分发 kube-controller-manager systemd unit 文件
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+cat > kube-controller-manager.service <<EOF
+[Unit]
+Description=Kubernetes Controller Manager
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+WorkingDirectory=${K8S_DIR}/kube-controller-manager
+ExecStart=/opt/k8s/bin/kube-controller-manager \\
+  --port=0 \\
+  --secure-port=10252 \\
+  --bind-address=127.0.0.1 \\
+  --kubeconfig=/etc/kubernetes/kube-controller-manager.kubeconfig \\
+  --authentication-kubeconfig=/etc/kubernetes/kube-controller-manager.kubeconfig \\
+  --authorization-kubeconfig=/etc/kubernetes/kube-controller-manager.kubeconfig \\
+  --service-cluster-ip-range=${SERVICE_CIDR} \\
+  --cluster-name=kubernetes \\
+  --cluster-signing-cert-file=/etc/kubernetes/cert/ca.pem \\
+  --cluster-signing-key-file=/etc/kubernetes/cert/ca-key.pem \\
+  --experimental-cluster-signing-duration=8760h \\
+  --root-ca-file=/etc/kubernetes/cert/ca.pem \\
+  --service-account-private-key-file=/etc/kubernetes/cert/ca-key.pem \\
+  --leader-elect=true \\
+  --controllers=*,bootstrapsigner,tokencleaner \\
+  --horizontal-pod-autoscaler-use-rest-clients=true \\
+  --horizontal-pod-autoscaler-sync-period=10s \\
+  --tls-cert-file=/etc/kubernetes/cert/kube-controller-manager.pem \\
+  --tls-private-key-file=/etc/kubernetes/cert/kube-controller-manager-key.pem \\
+  --use-service-account-credentials=true \\
+  --kube-api-qps=1000 \\
+  --kube-api-burst=2000 \\
+  --logtostderr=true \\
+  --v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+> 注：所有操作在ks-master上执行
+
+- --port=0：关闭监听 http /metrics 的请求，同时 --address 参数无效，--bind-address 参数有效；
+- --secure-port=10252、--bind-address=0.0.0.0: 在所有网络接口监听 10252 端口的 https /metrics 请求；
+- --kubeconfig：指定 kubeconfig 文件路径，kube-controller-manager 使用它连接和验证 kube-apiserver；
+- --authentication-kubeconfig 和 --authorization-kubeconfig：kube-controller-manager 使用它连接 apiserver，对 client 的请求进行认证和授权。kube-controller-manager 不再使用 --tls-ca-file 对请求 https metrics 的 Client 证书进行校验。如果没有配置这两个 kubeconfig 参数，则 client 连接 kube-controller-manager https 端口的请求会被拒绝(提示权限不足)。
+- --cluster-signing-*-file：签名 TLS Bootstrap 创建的证书；
+- --experimental-cluster-signing-duration：指定 TLS Bootstrap 证书的有效期；
+- --root-ca-file：放置到容器 ServiceAccount 中的 CA 证书，用来对 kube-apiserver 的证书进行校验；
+- --service-account-private-key-file：签名 ServiceAccount 中 Token 的私钥文件，必须和 kube-apiserver 的 --service-account-key-file 指定的公钥文件配对使用；
+- --service-cluster-ip-range ：指定 Service Cluster IP 网段，必须和 kube-apiserver 中的同名参数一致；
+- --leader-elect=true：集群运行模式，启用选举功能；被选为 leader 的节点负责处理工作，其它节点为阻塞状态；
+- --controllers=*,bootstrapsigner,tokencleaner：启用的控制器列表，tokencleaner 用于自动清理过期的 Bootstrap token；
+- --horizontal-pod-autoscaler-*：custom metrics 相关参数，支持 autoscaling/v2alpha1；
+- --tls-cert-file、--tls-private-key-file：使用 https 输出 metrics 时使用的 Server 证书和秘钥；
+- --use-service-account-credentials=true: kube-controller-manager 中各 controller 使用 serviceaccount 访问 kube-apiserver；
+
+[kube-controller-manager.service](kube-controller-manager.service)
+
+**分发 systemd unit 文件到 master 节点：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    scp kube-controller-manager.service root@${master_ip}:/etc/systemd/system/
+  done
+```
+
+> 注：所有操作在ks-master上执行
+
+### 9.4  kube-controller-manager 服务
+
+```
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "mkdir -p ${K8S_DIR}/kube-controller-manager"
+    ssh root@${master_ip} "systemctl daemon-reload && systemctl enable kube-controller-manager && systemctl restart kube-controller-manager"
+  done
+  
+```
+
+> 注：所有操作在ks-master上执行
+
+
+
+### 9.5 检查服务运行状态
+
+```
+source /opt/k8s/bin/environment.sh
+for master_ip in ${MASTER_IPS[@]}
+  do
+    echo ">>> ${master_ip}"
+    ssh root@${master_ip} "systemctl status kube-controller-manager|grep Active"
+  done
+```
+
+```
+[root@ks-master system]# netstat -lnpt|grep kube-controll
+tcp        0      0 127.0.0.1:10257         0.0.0.0:*               LISTEN      15808/kube-controll
+tcp6       0      0 :::10252                :::*                    LISTEN      15808/kube-controll
+```

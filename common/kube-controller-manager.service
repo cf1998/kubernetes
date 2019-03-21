@@ -1,0 +1,35 @@
+[Unit]
+Description=Kubernetes Controller Manager
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+WorkingDirectory=/data/k8s/k8s/kube-controller-manager
+ExecStart=/opt/k8s/bin/kube-controller-manager \
+  --master=https://10.10.11.21:6443 \
+  --bind-address=127.0.0.1 \
+  --kubeconfig=/etc/kubernetes/kube-controller-manager.kubeconfig \
+  --authentication-kubeconfig=/etc/kubernetes/kube-controller-manager.kubeconfig \
+  --authorization-kubeconfig=/etc/kubernetes/kube-controller-manager.kubeconfig \
+  --service-cluster-ip-range=10.254.0.0/16 \
+  --cluster-name=kubernetes \
+  --cluster-signing-cert-file=/etc/kubernetes/cert/ca.pem \
+  --cluster-signing-key-file=/etc/kubernetes/cert/ca-key.pem \
+  --experimental-cluster-signing-duration=8760h \
+  --root-ca-file=/etc/kubernetes/cert/ca.pem \
+  --service-account-private-key-file=/etc/kubernetes/cert/ca-key.pem \
+  --leader-elect=true \
+  --controllers=*,bootstrapsigner,tokencleaner \
+  --horizontal-pod-autoscaler-use-rest-clients=true \
+  --horizontal-pod-autoscaler-sync-period=10s \
+  --tls-cert-file=/etc/kubernetes/cert/kube-controller-manager.pem \
+  --tls-private-key-file=/etc/kubernetes/cert/kube-controller-manager-key.pem \
+  --use-service-account-credentials=true \
+  --kube-api-qps=1000 \
+  --kube-api-burst=2000 \
+  --logtostderr=true \
+  --v=4
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
