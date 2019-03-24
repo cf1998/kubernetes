@@ -78,6 +78,13 @@ Table of Contents
             - [11.6 Bootstrap Token Auth 和授予权限](#116-bootstrap-token-auth-和授予权限)
             - [11.7 启动 kubelet 服务](#117-启动-kubelet-服务)
             - [11.8 kubernetes 状态验证](#118-kubernetes-状态验证)
+        - [12. 部署 kube-proxy 组件](#12-部署-kube-proxy-组件)
+            - [12.1 创建 kube-proxy 证书](#121-创建-kube-proxy-证书)
+            - [12.2 创建和分发 kubeconfig 文件](#122-创建和分发-kubeconfig-文件)
+            - [12.3 创建 kube-proxy 配置文件](#123-创建-kube-proxy-配置文件)
+            - [12.4 创建和分发 kube-proxy systemd unit 文件](#124-创建和分发-kube-proxy-systemd-unit-文件)
+            - [12.5 启动 kube-proxy 服务](#125-启动-kube-proxy-服务)
+            - [12.6 检查启动结果](#126-检查启动结果)
         - [参考文档](#参考文档)
 
 <!-- /TOC -->
@@ -2116,12 +2123,211 @@ No resources found.
 
 
 
+### 12. 部署 kube-proxy 组件
+
+#### 12.1 创建 kube-proxy 证书
+
+**创建证书签名请求：**
+
+```
+cd /opt/k8s/work
+cat > kube-proxy-csr.json <<EOF
+{
+  "CN": "system:kube-proxy",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+```
+
+- CN：指定该证书的 User 为 system:kube-proxy；
+- 预定义的 RoleBinding system:node-proxier 将User system:kube-proxy 与 Role system:node-proxier 绑定，该 Role 授予了调用 kube-apiserver Proxy 相关 API 的权限；
+- 该证书只会被 kube-proxy 当做 client 证书使用，所以 hosts 字段为空；
+
+
+**生成证书和私钥：**
+
+```
+cd /opt/k8s/work
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes  kube-proxy-csr.json | cfssljson -bare kube-proxy
+ls kube-proxy*
+```
+
+> 注：所有操作在ks-master上执行
+
+#### 12.2 创建和分发 kubeconfig 文件
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-proxy.kubeconfig
+
+kubectl config set-credentials kube-proxy \
+  --client-certificate=kube-proxy.pem \
+  --client-key=kube-proxy-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-proxy.kubeconfig
+
+kubectl config set-context default \
+  --cluster=kubernetes \
+  --user=kube-proxy \
+  --kubeconfig=kube-proxy.kubeconfig
+
+kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
+```
+
+- --embed-certs=true：将 ca.pem 和 admin.pem 证书内容嵌入到生成的 kubectl-proxy.kubeconfig 文件中(不加时，写入的是证书文件路径)；
+
+**分发 kubeconfig 文件:**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for node_name in ${NODE_NAMES[@]}
+  do
+    echo ">>> ${node_name}"
+    scp kube-proxy.kubeconfig root@${node_name}:/etc/kubernetes/
+  done
+```
+> 注：所有操作在ks-master上执行
+
+#### 12.3 创建 kube-proxy 配置文件
+
+**创建 kube-proxy config 文件模板：**
+
+```
+cd /opt/k8s/work
+cat <<EOF | tee kube-proxy-config.yaml.template
+kind: KubeProxyConfiguration
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+clientConnection:
+  kubeconfig: "/etc/kubernetes/kube-proxy.kubeconfig"
+bindAddress: ##NODE_IP##
+clusterCIDR: ${CLUSTER_CIDR}
+healthzBindAddress: ##NODE_IP##:10256
+hostnameOverride: ##NODE_NAME##
+metricsBindAddress: ##NODE_IP##:10249
+mode: "ipvs"
+EOF
+```
+
+- bindAddress: 监听地址；
+- clientConnection.kubeconfig: 连接 apiserver 的 kubeconfig 文件；
+- clusterCIDR: kube-proxy 根据 --cluster-cidr 判断集群内部和外部流量，指定 --cluster-cidr 或 --masquerade-all 选项后 kube-proxy 才会对访问 Service IP 的请求做 SNAT；
+- hostnameOverride: 参数值必须与 kubelet 的值一致，否则 kube-proxy 启动后会找不到该 Node，从而不会创建任何 ipvs 规则；
+mode: 使用 ipvs 模式；
+
+**为各节点创建和分发 kube-proxy 配置文件：**
+
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for (( i=0; i < 3; i++ ))
+  do 
+    echo ">>> ${NODE_NAMES[i]}"
+    sed -e "s/##NODE_NAME##/${NODE_NAMES[i]}/" -e "s/##NODE_IP##/${NODE_IPS[i]}/" kube-proxy-config.yaml.template > kube-proxy-config-${NODE_NAMES[i]}.yaml.template
+    scp kube-proxy-config-${NODE_NAMES[i]}.yaml.template root@${NODE_NAMES[i]}:/etc/kubernetes/kube-proxy-config.yaml
+  done
+```
+
+#### 12.4 创建和分发 kube-proxy systemd unit 文件
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+cat > kube-proxy.service <<EOF
+[Unit]
+Description=Kubernetes Kube-Proxy Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+
+[Service]
+WorkingDirectory=${K8S_DIR}/kube-proxy
+ExecStart=/opt/k8s/bin/kube-proxy \\
+  --config=/etc/kubernetes/kube-proxy-config.yaml \\
+  --logtostderr=true \\
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+
+[kube-proxy.service](common/kube-proxy.service)
+
+> 注：所有操作在ks-master上执行
+
+**分发 kube-proxy systemd unit 文件：**
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for node_name in ${NODE_NAMES[@]}
+  do 
+    echo ">>> ${node_name}"
+    scp kube-proxy.service root@${node_name}:/etc/systemd/system/
+  done
+```
 
 
 
+#### 12.5 启动 kube-proxy 服务
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for node_ip in ${NODE_IPS[@]}
+  do
+    echo ">>> ${node_ip}"
+    ssh root@${node_ip} "mkdir -p ${K8S_DIR}/kube-proxy"
+    ssh root@${node_ip} "systemctl daemon-reload && systemctl enable kube-proxy && systemctl restart kube-proxy"
+  done
+```
 
 
+> 注：所有操作在ks-master上执行
 
+#### 12.6 检查启动结果
+```
+source /opt/k8s/bin/environment.sh
+for node_ip in ${NODE_IPS[@]}
+  do
+    echo ">>> ${node_ip}"
+    ssh root@${node_ip} "systemctl status kube-proxy|grep Active"
+  done
+```
+
+
+```
+[root@ks-master ~]# netstat -lnpt|grep kube-prox
+tcp        0      0 172.27.128.150:10249    0.0.0.0:*               LISTEN      76419/kube-proxy
+tcp        0      0 172.27.128.150:10256    0.0.0.0:*               LISTEN      76419/kube-proxy
+```
+
+> 注：所有操作在ks-master上执行
 
 ### 参考文档
 
