@@ -78,6 +78,7 @@ Table of Contents
             - [11.6 Bootstrap Token Auth 和授予权限](#116-bootstrap-token-auth-和授予权限)
             - [11.7 启动 kubelet 服务](#117-启动-kubelet-服务)
             - [11.8 kubernetes 状态验证](#118-kubernetes-状态验证)
+        - [参考文档](#参考文档)
 
 <!-- /TOC -->
 
@@ -2116,4 +2117,16 @@ No resources found.
 
 
 
+
+
+
+
+
+
+### 参考文档
+
+- https://www.kubernetes.org.cn/
+- https://jimmysong.io/kubernetes-handbook/
+- http://yanghongfei.me/2019/03/12/k8s-ha/
+- https://github.com/opsnull/
 
