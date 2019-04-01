@@ -46,7 +46,7 @@ apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
   name: grafana
-  namespace: monitoring
+  namespace: default
 spec:
   rules:
   - host: grafana.baishuchao.com
