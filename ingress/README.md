@@ -27,7 +27,7 @@ HTTP(s) 负载均衡器是应用负载均衡机制的一种，支持根据环境
 
 ### 2. 部署 Ingress
 
-```
+```yaml
 [root@ks-master ~]# wget https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/mandatory.yaml
 [root@ks-master ~]# kubectl  apply -f mandatory.yaml 
 [root@ks-master ~]# kubectl get pods --all-namespaces |grep ingress
@@ -41,7 +41,7 @@ ingress-nginx       traefik-ingress-controller-sd5l7         1/1     Running   0
 
 ### 3. 使用ingress发布项目
 
-```
+```yaml
 apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
