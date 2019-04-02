@@ -259,9 +259,9 @@ etcd 是基于 Raft 的分布式 key-value 存储系统，由 CoreOS 开发，�
 
 etcd 集群各节点的名称和 IP 如下：
 
-- ks-master：10.10.11.21
-- ks-node1：10.10.11.20
-- ks-node2：10.10.11.19
+- ks-master：10.10.12.143
+- ks-node1：10.10.12.142
+- ks-node2：10.10.12.141
 > 注：所有操作在ks-master上执行
 
 #### 3.2 下载和分发 etcd 二进制文件
@@ -478,11 +478,11 @@ for node_ip in ${NODE_IPS[@]}
   done
 
 # 执行结果
->>> 10.10.11.21
+>>> 10.10.12.143
    Active: active (running) since Tue 2019-03-19 15:55:22 CST; 1h 26min ago
->>> 10.10.11.20
+>>> 10.10.12.142
    Active: active (running) since Tue 2019-03-19 15:55:11 CST; 1h 26min ago
->>> 10.10.11.19
+>>> 10.10.12.141
    Active: active (running) since Tue 2019-03-19 15:55:11 CST; 1h 26min ago
 
 
