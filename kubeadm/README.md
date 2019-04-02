@@ -3,7 +3,7 @@ Table of Contents
 <!-- TOC -->
 
 - [目录](#目录)
-    - [基于kubeadm部署kubernetes v1.14.0](#基于kubeadm部署kubernetes-v1140)
+    - [基于 kubeadm 部署 kubernetes v1.14.0](#基于-kubeadm-部署-kubernetes-v1140)
         - [1. kubernetes 环境概述](#1-kubernetes-环境概述)
             - [1.1 kubernetes环境介绍](#11-kubernetes环境介绍)
             - [1.2 kubernetes核心组件](#12-kubernetes核心组件)
@@ -26,7 +26,7 @@ Table of Contents
 <!-- /TOC -->
 
 # 目录
-## 基于kubeadm部署kubernetes v1.14.0 
+## 基于 kubeadm 部署 kubernetes v1.14.0 
 
 ### 1. kubernetes 环境概述
 #### 1.1 kubernetes环境介绍
