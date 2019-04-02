@@ -1,0 +1,38 @@
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: "ipvs"  #使用IPVS模式，非iptables
+---
+apiVersion: kubeadm.k8s.io/v1beta1  #v1beta1版本,非v1alpha版本，语法会有变化
+certificatesDir: /etc/kubernetes/pki   
+clusterName: kubernetes
+controlPlaneEndpoint: 10.10.12.143:6443  #Keeplived 虚拟IP地址
+controllerManager: {}
+dns:
+  type: CoreDNS  #默认DNS：CoreDNS
+imageRepository: k8s.gcr.io   #官方镜像
+kind: ClusterConfiguration
+kubernetesVersion: v1.13.3   #K8S版本
+networking:
+  dnsDomain: cluster.local
+  serviceSubnet: 10.96.0.0/12  #SVC网络段 
+  podSubnet: 100.64.0.0/10     #POD网络段
+apiServer:
+        certSANs:  
+        - 10.10.12.143
+        - 10.10.12.142
+        - 10.10.12.141
+        extraArgs: 
+           etcd-cafile: /etc/etcd/ssl/ca.pem
+           etcd-certfile: /etc/etcd/ssl/etcd.pem
+           etcd-keyfile: /etc/etcd/ssl/etcd-key.pem
+etcd:  #使用外接etcd高可用
+    external:
+        caFile: /etc/etcd/ssl/ca.pem
+        certFile: /etc/etcd/ssl/etcd.pem
+        keyFile: /etc/etcd/ssl/etcd-key.pem
+        endpoints:
+        - https://10.10.12.143:2379
+        - https://10.10.12.142:2379
+        - https://10.10.12.141:2379
+
+

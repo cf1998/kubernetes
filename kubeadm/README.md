@@ -22,6 +22,11 @@ Table of Contents
             - [3.7 检查启动结果](#37-检查启动结果)
             - [3.8 验证服务状态](#38-验证服务状态)
             - [5.8 查看当前的 leader](#58-查看当前的-leader)
+        - [4. 开始部署kubernetes](#4-开始部署kubernetes)
+            - [4.1 安装kubeadm、kubectl、kubelet](#41-安装kubeadmkubectlkubelet)
+            - [4.2 安装Master节点](#42-安装master节点)
+            - [4.3 部署网络组件](#43-部署网络组件)
+            - [4.3 加入节点](#43-加入节点)
 
 <!-- /TOC -->
 
@@ -546,5 +551,148 @@ ETCDCTL_API=3 /opt/k8s/bin/etcdctl \
 
 
 
+### 4. 开始部署kubernetes 
 
+#### 4.1 安装kubeadm、kubectl、kubelet
+
+```
+$ yum install -y kubelet kubeadm kubectl kubernetes-cni
+$ systemctl enable kubelet && systemctl start kubelet
+```
+
+> 注：所有操作在所有节点执行上执行
+
+#### 4.2 安装Master节点
+
+**查看所需要的docker image**
+
+```shell
+[root@ks-master ~]# kubeadm config images list
+k8s.gcr.io/kube-apiserver:v1.14.0
+k8s.gcr.io/kube-controller-manager:v1.14.0
+k8s.gcr.io/kube-scheduler:v1.14.0
+k8s.gcr.io/kube-proxy:v1.14.0
+k8s.gcr.io/pause:3.1
+k8s.gcr.io/etcd:3.3.10
+k8s.gcr.io/coredns:1.3.1
+```
+
+> 注：如果要pull如上镜像需要打个梯子的。。。。。所以接下来的操作我们需要更改镜像仓库进行pull
+
+**部署 master**
+
+[config.yaml](./config.yaml)
+
+
+```
+[root@ks-master ~]# kubeadm init --config config.yaml
+
+初始化成功后输出信息：
+Your Kubernetes master has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+You can now join any number of machines by running the following on each node
+as root:
+
+  kubeadm join 10.10.12.143:6443 --token b99a00.a144ef80536d4344 --discovery-token-ca-cert-hash sha256:8c
+```
+
+**在ks-master上执行初始化命令**
+
+```
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+```
+
+
+**查看状态**
+
+```
+$ kubectl get cs
+NAME                 STATUS    MESSAGE             ERROR
+controller-manager   Healthy   ok                  
+scheduler            Healthy   ok                  
+etcd-0               Healthy   {"health":"true"}   
+etcd-2               Healthy   {"health":"true"}    
+etcd-1               Healthy   {"health":"true"}
+```
+
+#### 4.3 部署网络组件
+
+**修改系统设置，创建 flannel 网络**
+
+```
+[root@devops-101 ~]# sysctl net.bridge.bridge-nf-call-iptables=1
+net.bridge.bridge-nf-call-iptables = 1
+[root@devops-101 ~]# kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml
+clusterrole.rbac.authorization.k8s.io/flannel created
+clusterrolebinding.rbac.authorization.k8s.io/flannel created
+serviceaccount/flannel created
+configmap/kube-flannel-cfg created
+daemonset.extensions/kube-flannel-ds created
+```
+
+> flannel 默认会使用主机的第一张网卡，如果你有多张网卡，需要通过配置单独指定。修改 kube-flannel.yml 中的以下部分
+
+```
+containers:
+      - name: kube-flannel
+        image: quay.io/coreos/flannel:v0.10.0-amd64
+        command:
+        - /opt/bin/flanneld
+        args:
+        - --ip-masq
+        - --kube-subnet-mgr
+        - --iface=enp0s3            #指定内网网卡
+```
+
+> 执行成功后，Master并不能马上变成Ready状态，稍等几分钟，就可以看到所有状态都正常了。
+
+```
+[root@ks-master ~]# kubectl get pods --all-namespaces
+NAMESPACE     NAME                                 READY     STATUS    RESTARTS   AGE
+kube-system   coredns-78fcdf6894-8sd6g             1/1       Running   0          14m
+kube-system   coredns-78fcdf6894-lgvd9             1/1       Running   0          14m
+kube-system   etcd-devops-101                      1/1       Running   0          13m
+kube-system   kube-apiserver-devops-101            1/1       Running   0          13m
+kube-system   kube-controller-manager-devops-101   1/1       Running   0          13m
+kube-system   kube-flannel-ds-6zljr                1/1       Running   0          48s
+kube-system   kube-proxy-bhmj8                     1/1       Running   0          14m
+kube-system   kube-scheduler-devops-101            1/1       Running   0          13m
+[root@ks-master ~]# kubectl get nodes
+NAME         STATUS    ROLES     AGE       VERSION
+ks-master   Ready     master    14m       v1.14.0
+```
+
+#### 4.3 加入节点
+
+**在所有节点执行**
+
+```
+$kubeadm join 10.10.12.143:6443 --token b99a00.a144ef80536d4344 --discovery-token-ca-cert-hash sha256:51985223a369a1f8c226f3ccdcf97f4ad5ff201a7c8c708e1636eea0739c0f05
+```
+
+
+**稍等片刻查看节点状态**
+
+```
+[root@ks-master ~]# kubectl get nodes
+NAME        STATUS   ROLES    AGE     VERSION
+ks-master   Ready    master   3d18h   v1.14.0
+ks-node1    Ready    <none>   3d18h   v1.14.0
+ks-node2    Ready    <none>   3d18h   v1.14.0
+```
+
+> 到此为止，kubernetes集群部署完毕，其他组件部署请参考其他文档
 
