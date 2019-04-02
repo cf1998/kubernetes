@@ -5,7 +5,7 @@ mode: "ipvs"  #使用IPVS模式，非iptables
 apiVersion: kubeadm.k8s.io/v1beta1  #v1beta1版本,非v1alpha版本，语法会有变化
 certificatesDir: /etc/kubernetes/pki   
 clusterName: kubernetes
-controlPlaneEndpoint: 10.10.12.143:6443  #Keeplived 虚拟IP地址
+controlPlaneEndpoint: 10.10.12.143:6443  #api server IP地址
 controllerManager: {}
 dns:
   type: CoreDNS  #默认DNS：CoreDNS
