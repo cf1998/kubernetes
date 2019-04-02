@@ -1,6 +1,29 @@
 Table of Contents
 =================
+<!-- TOC -->
 
+- [目录](#目录)
+    - [基于kubeadm部署kubernetes v1.14.0](#基于kubeadm部署kubernetes-v1140)
+        - [1. kubernetes 环境概述](#1-kubernetes-环境概述)
+            - [1.1 kubernetes环境介绍](#11-kubernetes环境介绍)
+            - [1.2 kubernetes核心组件](#12-kubernetes核心组件)
+        - [2. kubernetes部署前准备](#2-kubernetes部署前准备)
+            - [2.1 系统初始化](#21-系统初始化)
+            - [2.2 设置国内 yum 源](#22-设置国内-yum-源)
+            - [2.3 安装Docker-CE](#23-安装docker-ce)
+            - [2.4 配置Docker镜像加速](#24-配置docker镜像加速)
+        - [3. 部署ETCD高可用集群](#3-部署etcd高可用集群)
+            - [3.1 安装 cfssl 工具集](#31-安装-cfssl-工具集)
+            - [3.2 下载和分发 etcd 二进制文件](#32-下载和分发-etcd-二进制文件)
+            - [3.3 创建 etcd 证书和私钥](#33-创建-etcd-证书和私钥)
+            - [3.4 创建 etcd 的 systemd unit 模板文件](#34-创建-etcd-的-systemd-unit-模板文件)
+            - [3.5 为各节点创建和分发 etcd systemd unit 文件](#35-为各节点创建和分发-etcd-systemd-unit-文件)
+            - [3.6 启动 etcd 服务](#36-启动-etcd-服务)
+            - [3.7 检查启动结果](#37-检查启动结果)
+            - [3.8 验证服务状态](#38-验证服务状态)
+            - [5.8 查看当前的 leader](#58-查看当前的-leader)
+
+<!-- /TOC -->
 
 # 目录
 ## 基于kubeadm部署kubernetes v1.14.0 
