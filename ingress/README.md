@@ -11,6 +11,7 @@ Table of Contents
         - [3. 使用ingress发布项目](#3-使用ingress发布项目)
         - [4.  验证是否成功](#4--验证是否成功)
         - [5. 配置TLS ingress](#5-配置tls-ingress)
+    - [待更新](#待更新)
 
 <!-- /TOC -->
 
@@ -67,5 +68,11 @@ spec:
 
 通过浏览器访问 `grafana.baishuchao.com`
 
+![](../images/grafana.png)
+
+
+> 说明：如果能通过域名访问到，则访问成功
+
 ### 5. 配置TLS ingress
 
+## 待更新
