@@ -1,0 +1,33 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: eureka-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eureka-server
+  template:
+    metadata:
+      labels:
+        app: eureka-server
+    spec:
+      containers:
+        - name: eureka-server
+          image: registry.cn-hangzhou.aliyuncs.com/cloud-ts/eureka-server:690
+          volumeMounts:
+          - name: cloud-logs
+            mountPath: /logs/cloud
+          imagePullPolicy: Always
+          env:
+           - name: aliyun_logs_pod
+             value: "/logs/cloud/*.log"
+          ports:
+            - containerPort: 8761
+      imagePullSecrets:
+        - name: registry-secret
+      volumes:
+      - name: cloud-logs
+        emptyDir: {}
+
+        
