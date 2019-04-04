@@ -9,7 +9,8 @@ controlPlaneEndpoint: 10.10.12.143:6443  #api server IP地址
 controllerManager: {}
 dns:
   type: CoreDNS  #默认DNS：CoreDNS
-imageRepository: k8s.gcr.io   #官方镜像
+#imageRepository: k8s.gcr.io   #官方镜像
+imageRepository: registry.cn-hangzhou.aliyuncs.com/google_containers  #国内阿里镜像
 kind: ClusterConfiguration
 kubernetesVersion: v1.13.3   #K8S版本
 networking:

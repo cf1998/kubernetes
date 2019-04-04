@@ -14,14 +14,17 @@ Table of Contents
             - [2.4 配置Docker镜像加速](#24-配置docker镜像加速)
         - [3. 部署ETCD高可用集群](#3-部署etcd高可用集群)
             - [3.1 安装 cfssl 工具集](#31-安装-cfssl-工具集)
-            - [3.2 下载和分发 etcd 二进制文件](#32-下载和分发-etcd-二进制文件)
-            - [3.3 创建 etcd 证书和私钥](#33-创建-etcd-证书和私钥)
-            - [3.4 创建 etcd 的 systemd unit 模板文件](#34-创建-etcd-的-systemd-unit-模板文件)
-            - [3.5 为各节点创建和分发 etcd systemd unit 文件](#35-为各节点创建和分发-etcd-systemd-unit-文件)
-            - [3.6 启动 etcd 服务](#36-启动-etcd-服务)
-            - [3.7 检查启动结果](#37-检查启动结果)
-            - [3.8 验证服务状态](#38-验证服务状态)
-            - [5.8 查看当前的 leader](#58-查看当前的-leader)
+            - [3.2 创建根证书 (CA)](#32-创建根证书-ca)
+                - [生成 CA 证书和私钥](#生成-ca-证书和私钥)
+                - [分发证书文件](#分发证书文件)
+            - [3.3 下载和分发 etcd 二进制文件](#33-下载和分发-etcd-二进制文件)
+            - [3.4 创建 etcd 证书和私钥](#34-创建-etcd-证书和私钥)
+            - [3.5 创建 etcd 的 systemd unit 模板文件](#35-创建-etcd-的-systemd-unit-模板文件)
+            - [3.6 为各节点创建和分发 etcd systemd unit 文件](#36-为各节点创建和分发-etcd-systemd-unit-文件)
+            - [3.7 启动 etcd 服务](#37-启动-etcd-服务)
+            - [3.8 检查启动结果](#38-检查启动结果)
+            - [3.9 验证服务状态](#39-验证服务状态)
+            - [3.10 查看当前的 leader](#310-查看当前的-leader)
         - [4. 开始部署kubernetes](#4-开始部署kubernetes)
             - [4.1 安装kubeadm、kubectl、kubelet](#41-安装kubeadmkubectlkubelet)
             - [4.2 安装Master节点](#42-安装master节点)
@@ -269,7 +272,105 @@ etcd 集群各节点的名称和 IP 如下：
 - ks-node2：10.10.12.141
 > 注：所有操作在ks-master上执行
 
-#### 3.2 下载和分发 etcd 二进制文件
+
+
+
+#### 3.2 创建根证书 (CA)
+
+> CA 证书是集群所有节点共享的，只需要创建一个 CA 证书，后续创建的所有证书都由它签名。
+
+**创建配置文件**
+
+> CA 配置文件用于配置根证书的使用场景 (profile) 和具体参数 (usage，过期时间、服务端认证、客户端认证、加密等)，后续在签名其它证书时需要指定特定场景。
+
+```
+cd /opt/k8s/work
+cat > ca-config.json <<EOF
+{
+  "signing": {
+    "default": {
+      "expiry": "87600h"
+    },
+    "profiles": {
+      "kubernetes": {
+        "usages": [
+            "signing",
+            "key encipherment",
+            "server auth",
+            "client auth"
+        ],
+        "expiry": "87600h"
+      }
+    }
+  }
+}
+EOF
+```
+> 注：所有操作在ks-master上执行
+
+- signing：表示该证书可用于签名其它证书，生成的 ca.pem 证书中 CA=TRUE；
+- server auth：表示 client 可以用该该证书对 server 提供的证书进行验证；
+- client auth：表示 server 可以用该该证书对 client 提供的证书进行验证；
+
+**创建证书签名请求文件**
+
+```
+cd /opt/k8s/work
+cat > ca-csr.json <<EOF
+{
+  "CN": "kubernetes",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+```
+> 注：所有操作在ks-master上执行
+
+- CN：Common Name，kube-apiserver 从证书中提取该字段作为请求的用户名 (User Name)，浏览器使用该字段验证网站是否合法；
+- O：Organization，kube-apiserver 从证书中提取该字段作为请求用户所属的组 (Group)；
+- kube-apiserver 将提取的 User、Group 作为 RBAC 授权的用户标识；
+
+
+##### 生成 CA 证书和私钥
+
+```
+cd /opt/k8s/work
+cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+ls ca*
+```
+> 注：所有操作在ks-master上执行
+
+##### 分发证书文件
+
+将生成的 CA 证书、秘钥文件、配置文件拷贝到所有节点的 /etc/kubernetes/cert 目录下：
+
+首先执行此脚本加载变量：[environment.sh](common/environment.sh)
+
+```
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh # 导入 NODE_IPS 环境变量
+for node_ip in ${NODE_IPS[@]}
+  do
+    echo ">>> ${node_ip}"
+    ssh root@${node_ip} "mkdir -p /etc/kubernetes/cert"
+    scp ca*.pem ca-config.json root@${node_ip}:/etc/kubernetes/cert
+  done
+```
+> 注：所有操作在ks-master上执行
+
+
+#### 3.3 下载和分发 etcd 二进制文件
 
 ```
 cd /opt/k8s/work
@@ -293,7 +394,7 @@ for node_ip in ${NODE_IPS[@]}
 > 注：所有操作在ks-master上执行
 
 
-#### 3.3 创建 etcd 证书和私钥
+#### 3.4 创建 etcd 证书和私钥
 
 **创建证书签名请求：**
 
@@ -357,7 +458,7 @@ for node_ip in ${NODE_IPS[@]}
 ```
 > 注：所有操作在ks-master上执行
 
-#### 3.4 创建 etcd 的 systemd unit 模板文件
+#### 3.5 创建 etcd 的 systemd unit 模板文件
 
 ```
 cd /opt/k8s/work
@@ -417,7 +518,7 @@ EOF
 - --peer-cert-file、--peer-key-file：etcd 与 peer 通信使用的证书和私钥；
 - --peer-trusted-ca-file：签名 peer 证书的 CA 证书，用于验证 peer 证书；
 
-#### 3.5 为各节点创建和分发 etcd systemd unit 文件
+#### 3.6 为各节点创建和分发 etcd systemd unit 文件
 
 **替换模板文件中的变量，为各节点创建 systemd unit 文件：**
 
@@ -453,7 +554,7 @@ for node_ip in ${NODE_IPS[@]}
 
 
 
-#### 3.6 启动 etcd 服务
+#### 3.7 启动 etcd 服务
 
 ```
 cd /opt/k8s/work
@@ -471,7 +572,7 @@ for node_ip in ${NODE_IPS[@]}
 - 必须创建 etcd 数据目录和工作目录;
 - etcd 进程首次启动时会等待其它节点的 etcd 加入集群，命令 systemctl start etcd 会卡住一段时间，为正常现象。
 
-#### 3.7 检查启动结果
+#### 3.8 检查启动结果
 
 ```
 cd /opt/k8s/work
@@ -495,7 +596,7 @@ for node_ip in ${NODE_IPS[@]}
 
 > 注：所有操作在ks-master上执行
 
-#### 3.8 验证服务状态
+#### 3.9 验证服务状态
 
 **部署完 etcd 集群后，在任一 etc 节点上执行如下命令：**
 
@@ -524,7 +625,7 @@ https://10.10.12.141:2379 is healthy: successfully committed proposal: took = 1.
 > 注：所有操作在ks-master上执行
 
 
-#### 5.8 查看当前的 leader
+#### 3.10 查看当前的 leader
 
 ```
 source /opt/k8s/bin/environment.sh
