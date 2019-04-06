@@ -11,7 +11,7 @@
 
 ## 通过浏览器访问dashboard
 
-![](../../images/dashboard1.png)
+![](../images/dashboard1.png)
 
 
 **通过令牌认证**
@@ -22,6 +22,6 @@
 
 
 
-![](../../images/dash2.png)
+![](../images/dash2.png)
 
 > 到此为止 dashboard部署完毕，关于dashboard使用说明请参考官方文档！
