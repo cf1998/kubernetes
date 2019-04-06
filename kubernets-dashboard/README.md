@@ -16,7 +16,9 @@
 
 **通过令牌认证**
 
+```
 [root@ks-master k8s]# kubectl describe secret `kubectl get secrets -n kube-system |grep admin | awk '{print $1}'` -n kube-system
+```s
 
 > 注：获取令牌
 
