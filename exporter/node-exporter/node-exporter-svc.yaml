@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: 'true'
+  name: prometheus-node-exporter
+  namespace: kube-prometheus
+  labels:
+    app: node-exporter
+    component: node-exporter
+spec:
+  clusterIP: None
+  ports:
+    - name: prometheus-node-exporter
+      port: 9100
+      protocol: TCP
+  selector:
+    app: node-exporter
+    component: node-exporter
+  type: ClusterIP
