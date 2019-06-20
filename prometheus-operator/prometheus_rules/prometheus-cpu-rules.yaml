@@ -1,0 +1,32 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-cpu-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: Node主机CPU利用率监控
+    rules:
+    - alert: Node主机CPU利用率过高
+      annotations:
+        detail:  "{{$labels.instance}}: CPU利用率过高于75% (当前值: {{ $value }})"
+        summary: "{{$labels.instance}}: CPU利用率过高"
+      expr: |
+        100 - (avg by (instance) (irate(node_cpu_seconds_total{job="node-exporter",mode="idle"}[5m])) * 100) > 75
+      for: 1m
+      labels:
+        severity: 严重
+  - name: Node主机CPULoad监控
+    rules:
+    - alert: Node主机CPULoad过高
+      annotations:
+        detail:  "{{$labels.instance}}: 15分钟内CPU Load 过高，(当前值: {{ $value }})"
+        summary: "{{$labels.instance}}: 15分钟内CPU Load 过高"
+      expr: |
+        (node_load15) > 2     #根据你的主机核心数来定
+      for: 1m
+      labels:
+        severity: 严重
