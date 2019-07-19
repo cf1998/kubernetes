@@ -1,5 +1,5 @@
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: course-nfs-storage
+  name: es-data-db
 provisioner: fuseim.pri/ifs # or choose another name, must match deployment's env PROVISIONER_NAME'
