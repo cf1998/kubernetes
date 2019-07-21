@@ -58,16 +58,16 @@ spec:
           value: -Xmx$(LIMITS_MEMORY)m -XshowSettings:vm -Dhudson.slaves.NodeProvisioner.initialDelay=0 -Dhudson.slaves.NodeProvisioner.MARGIN=50 -Dhudson.slaves.NodeProvisioner.MARGIN0=0.85 -Duser.timezone=Asia/Shanghai
       securityContext:
         fsGroup: 1000
-      volumeClaimTemplates:
-      - metadata:
-          name: jenkinshome
-          annotations:
-            volume.beta.kubernetes.io/storage-class: data-ks
-        spec:
-          accessModes: [ "ReadWriteOnce" ]
-          resources:
-            requests:
-              storage: 10Gi
+  volumeClaimTemplates:
+  - metadata:
+      name: jenkinshome
+      annotations:
+        volume.beta.kubernetes.io/storage-class: data-ks
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
 
 ---
 apiVersion: v1
