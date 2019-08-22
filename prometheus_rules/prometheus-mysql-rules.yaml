@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-mysql-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: MySQL状态监控
+    rules:
+    - alert: MySQL down
+      annotations:
+        detail: "{{ $labels.instance }} MySQL down (当前值: {{ $value }})"
+        summary: "MySQL down！！！请管理员尽快排查"
+      expr: mysql_up == 0
+      for: 1m
+      labels:
+        severity: 严重
+        
