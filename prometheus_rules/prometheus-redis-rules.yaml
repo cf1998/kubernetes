@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-redis-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: redis状态监控
+    rules:
+    - alert: redis is down
+      annotations:
+        detail: "{{ $labels.instance }} redis is down (当前值: {{ $value }})"
+        summary: "redis is down！！！请管理员尽快排查"
+      expr: redis_up == 0
+      for: 1m
+      labels:
+        severity: 严重
+        
